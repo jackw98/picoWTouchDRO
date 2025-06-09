@@ -1,60 +1,60 @@
 #include <SerialBT.h>
+#include "pio_encoder.h"
 
 #define LED_PIN LED_BUILTIN
 
-unsigned long lastSend = 0;
-const unsigned long dataInterval = 500;  // 0.5 seconds = 1 Hz data update
-const unsigned long led1HzInterval = 500;
-const unsigned long led5HzInterval = 100;
+// Encoders A, B, C (X, Y, Z)
+PioEncoder encA(2);
+PioEncoder encB(6);
+PioEncoder encC(8);
 
-bool ledState = false;
-unsigned long lastLedToggle = 0;
+unsigned long lastSend = 0;
+const unsigned long dataInterval = 10;      // 10 ms
+const unsigned long ledPulseDuration = 50;  // LED on time after sending
+
+bool ledOn = false;
+unsigned long ledTurnOffTime = 0;
 
 void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  SerialBT.setName("PicoW DRO Test");
+  encA.begin();
+  encB.begin();
+  encC.begin();
+
+  SerialBT.setName("PicoW DRO");
   SerialBT.begin();
 }
 
 void loop() {
   unsigned long now = millis();
 
-  // Bluetooth connected: send data and blink at 1Hz
-  if (SerialBT) {
-    if (now - lastSend >= dataInterval) {
-      lastSend = now;
+  // Send encoder data every 10ms
+  if (SerialBT && now - lastSend >= dataInterval) {
+    lastSend = now;
 
-      // Generate test data
-      int w = random(-9999, 10000);
-      int x = random(-9999, 10000);
-      int y = random(-9999, 10000);
-      int z = random(-9999, 10000);
-      int t = random(-9999, 10000);
+    int x = encA.getCount();
+    int y = encB.getCount();
+    int z = encC.getCount();
 
-      char buf[128];
-      snprintf(buf, sizeof(buf), "w%d;x%d;y%d;z%d;t%d;\r\n", w, x, y, z, t);
-      SerialBT.print(buf);
-    }
+    char buf[64];
+    snprintf(buf, sizeof(buf), "x%d;y%d;z%d;\r\n", x, y, z);
+    SerialBT.print(buf);
 
-    // 1Hz LED blink (on 0.5s, off 0.5s)
-    if (now - lastLedToggle >= led1HzInterval) {
-      lastLedToggle = now;
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState);
-    }
-  } 
-  else {
-    // 5Hz LED blink (on/off every 100ms)
-    if (now - lastLedToggle >= led5HzInterval) {
-      lastLedToggle = now;
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState);
-    }
+    // Start non-blocking LED blink
+    digitalWrite(LED_PIN, HIGH);
+    ledOn = true;
+    ledTurnOffTime = now + ledPulseDuration;
   }
 
-  // Discard incoming data if any
+  // Turn off LED if pulse duration has elapsed
+  if (ledOn && millis() >= ledTurnOffTime) {
+    digitalWrite(LED_PIN, LOW);
+    ledOn = false;
+  }
+
+  // Discard incoming BT data
   while (SerialBT.available()) {
     SerialBT.read();
   }
